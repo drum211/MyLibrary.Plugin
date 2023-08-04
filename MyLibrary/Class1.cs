@@ -2,10 +2,13 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Text.Json;
-using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
+using System.Net;
+using System.Net.Http;
+//using System.Text;
+//using System.Text.Json;
+//using System.Threading.Tasks;
+using Newtonsoft.Json;
+//using Newtonsoft.Json.Linq;
 using PhoneApp.Domain.Attributes;
 using PhoneApp.Domain.DTO;
 using PhoneApp.Domain.Interfaces;
@@ -18,23 +21,28 @@ namespace MyLibrary.Plugin
         private static readonly NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
         public IEnumerable<DataTransferObject> Run(IEnumerable<DataTransferObject> args)
         {
+            ServicePointManager.Expect100Continue = true;
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             logger.Info("Starting adding emplyees...");
 
             var employeesList = args.Cast<EmployeesDTO>().ToList();
 
 
-            // Open the file to read from.
-            string[] readText = File.ReadAllLines("Objects.txt");
-            int count = readText.Count();
-            for (int i = 0; i < count; i++)
+            using (var http = new HttpClient())
             {
-                if (i % 2 == 0)
+                var endpoint = "https://dummyjson.com/users";
+                var result = http.GetAsync(endpoint).Result;
+                var json = result.Content.ReadAsStringAsync().Result;
+                var objRoot = JsonConvert.DeserializeObject<Root>(json);
+                
+
+
+
+                int count = objRoot.users.Count;
+                for (int i = 0; i < count; i++)
                 {
-                    employeesList.Add(new EmployeesDTO() { Name = readText[i] });
-                }
-                else
-                {
-                    employeesList.LastOrDefault().AddPhone(readText[i]);
+                    employeesList.Add(new EmployeesDTO() { Name = $"{objRoot.users[i].firstName} {objRoot.users[i].lastName}" });
+                    employeesList.LastOrDefault().AddPhone(objRoot.users[i].phone);
                 }
             }
 
@@ -65,10 +73,24 @@ namespace MyLibrary.Plugin
                         break;
                     case "add":
                         Console.Write("Name: ");
-                        string name = Console.ReadLine();
+                        string str2 = Console.ReadLine();
                         Console.Write("Phone: ");
                         string phone = Console.ReadLine();
-                        Console.WriteLine($"{name} added to employees");
+                        string warningText = "cannot be an empty value! The object wasn't added to data base. Please, check the value and try again";
+                        if (str2 == null || str2 == "")
+                        {
+                            Console.WriteLine($"Name {warningText}");
+                        }
+                        if (phone == null || phone == "")
+                        {
+                            Console.WriteLine($"Phone {warningText}");
+                        }
+                        else
+                        {
+                            employeesList.Add(new EmployeesDTO() { Name = str2 });
+                            employeesList.LastOrDefault().AddPhone(phone);
+                            Console.WriteLine(str2 + " added to employees");
+                        }
                         break;
                     case "del":
                         Console.Write("Index of employee to delete: ");
@@ -79,9 +101,10 @@ namespace MyLibrary.Plugin
                         }
                         else
                         {
-                            if (indexToDelete > 0 && indexToDelete < employeesList.Count())
+                            if (indexToDelete >= 0 && indexToDelete < employeesList.Count())
                             {
                                 employeesList.RemoveAt(indexToDelete);
+                                logger.Error($"Employee at index {indexToDelete} was deleted successfully!");
                             }
                         }
                         break;
@@ -92,5 +115,20 @@ namespace MyLibrary.Plugin
 
             return employeesList.Cast<DataTransferObject>();
         }
+    }
+
+    public class Root
+    {
+        public List<User> users { get; set; }
+        public int total { get; set; }
+        public int skip { get; set; }
+        public int limit { get; set; }
+    }
+
+    public class User
+    {
+        public string firstName { get; set; }
+        public string lastName { get; set; }
+        public string phone { get; set; }
     }
 }
